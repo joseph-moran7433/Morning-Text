@@ -1,0 +1,8 @@
+run_timestamp,target_date,days_ahead,predicted_high,predicted_low,predicted_uniform,predicted_heat_category,predicted_cold_risk
+2026-09-04T08:24:34.288143-04:00,2026-09-04,0,84,69,"ACUs, sleeves rolled once",2,normal
+2026-09-04T08:24:34.288143-04:00,2026-09-05,1,80,61,"ACUs, sleeves rolled once",2,normal
+2026-09-04T08:24:34.288143-04:00,2026-09-06,2,75,59,ACUs + jacket,,normal
+2026-09-04T08:24:34.288143-04:00,2026-09-07,3,78,55,ACUs,1,normal
+2026-09-04T08:24:34.288143-04:00,2026-09-08,4,79,59,ACUs,1,normal
+2026-09-04T08:24:34.288143-04:00,2026-09-09,5,75,60,ACUs,,normal
+2026-09-04T08:24:34.288143-04:00,2026-09-10,6,83,65,"ACUs, sleeves rolled once",2,normal

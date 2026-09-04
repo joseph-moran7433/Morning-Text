@@ -1,181 +1,208 @@
 """
 advisory.py
 
-Pulls a 7-day forecast for West Point, NY from the National Weather
+Pulls an hourly forecast for West Point, NY from the National Weather
 Service API (api.weather.gov -- free, no API key required), computes
 a uniform recommendation / heat category / cold injury risk for each
-day, formats it into a short text message, and sends it via an
-email-to-SMS gateway.
+of the next 7 days, formats it into a short text digest, sends it as a
+push notification via ntfy, and logs the predictions (and, before that,
+yesterday's actual observed high/low) to CSV for later accuracy checks.
+
+Only hours from 0500-2330 local time count toward each day's high/low --
+outside that window isn't relevant to PT/formation or daytime training.
 
 Run manually:
     python advisory.py
 
-Environment variables required (set as GitHub Actions secrets in
-production, or in your own shell/`.env` for local testing):
-    EMAIL_FROM          - Gmail address to send FROM
-    EMAIL_APP_PASSWORD  - Gmail App Password (NOT your real password --
-                           generate one at myaccount.google.com/apppasswords)
-    EMAIL_TO             - your carrier's email-to-SMS address,
-                           e.g. 5551234567@vtext.com (Verizon),
-                           5551234567@txt.att.net (AT&T),
-                           5551234567@tmomail.net (T-Mobile)
+Environment variables required:
+    NTFY_TOPIC   - the ntfy topic to publish to (required, no default --
+                   pick something unguessable, ntfy.sh topics are public)
 
 Optional:
-    SMTP_SERVER (default: smtp.gmail.com)
-    SMTP_PORT    (default: 587)
+    NTFY_SERVER  - defaults to https://ntfy.sh (set this if self-hosting)
 """
 
 import os
-import smtplib
-import ssl
-from email.mime.text import MIMEText
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import requests
 
 from heat_category import heat_category
-from uniform_chart import uniform_for_temp, cold_risk
+from uniform_chart import cold_layer_uniform, heat_modifier_uniform, cold_risk
+from stations import find_nearest_station, fetch_actual_high_low
+from csv_log import append_predictions, append_actual
 
 # ---- Location: West Point, NY ----
 LAT = 41.3900
 LON = -73.9639
+LOCAL_TZ = ZoneInfo("America/New_York")
+
+# Only these local hours count toward a day's high/low -- 0500-2330.
+WINDOW_START_HOUR = 5
+WINDOW_END_HOUR = 23
+
+# Band width (F) for the "how hot/cold, and when" callouts.
+BAND_WIDTH = 5
 
 # NWS API requires a descriptive User-Agent with contact info
 HEADERS = {
-    "User-Agent": "(morning-text-advisory, class-project-contact@example.com)",
+    "User-Agent": "(morning-text-advisory, jwmoran7@optonline.net)",
     "Accept": "application/geo+json",
 }
 
 
-def get_forecast_urls(lat, lon):
-    """Step 1 of the NWS API: look up the grid endpoint for this lat/lon."""
+def get_forecast_hourly_url(lat, lon):
+    """Step 1 of the NWS API: look up the hourly forecast endpoint for this lat/lon."""
     url = f"https://api.weather.gov/points/{lat},{lon}"
     resp = requests.get(url, headers=HEADERS, timeout=15)
     resp.raise_for_status()
-    props = resp.json()["properties"]
-    return props["forecast"], props["forecastHourly"]
-
-
-def get_periods(forecast_url):
-    """12-hour day/night periods for the next 7 days."""
-    resp = requests.get(forecast_url, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-    return resp.json()["properties"]["periods"]
+    return resp.json()["properties"]["forecastHourly"]
 
 
 def get_hourly(forecast_hourly_url):
-    """Hourly periods -- used to pull relative humidity."""
     resp = requests.get(forecast_hourly_url, headers=HEADERS, timeout=15)
     resp.raise_for_status()
     return resp.json()["properties"]["periods"]
 
 
-def humidity_near(hourly_periods, target_iso_time):
+def hours_by_date(hourly_periods):
     """
-    Find the hourly forecast entry closest to a given time, and return
-    its relative humidity. Falls back to 50% if not found (keeps the
-    script from crashing if the API shape changes slightly).
+    Groups hourly forecast entries by local calendar date, keeping only
+    the 0500-2330 window, sorted chronologically within each date.
+    Each entry is (local_dt, temp_f).
     """
-    try:
-        target = datetime.fromisoformat(target_iso_time)
-    except ValueError:
-        return 50
-
-    best = None
-    best_diff = None
-    for hour in hourly_periods:
+    by_date = defaultdict(list)
+    for p in hourly_periods:
         try:
-            hour_time = datetime.fromisoformat(hour["startTime"])
+            dt = datetime.fromisoformat(p["startTime"]).astimezone(LOCAL_TZ)
         except (ValueError, KeyError):
             continue
-        diff = abs((hour_time - target).total_seconds())
-        if best_diff is None or diff < best_diff:
-            best = hour
-            best_diff = diff
+        if not (WINDOW_START_HOUR <= dt.hour <= WINDOW_END_HOUR):
+            continue
+        temp = p.get("temperature")
+        if temp is None:
+            continue
+        by_date[dt.strftime("%Y-%m-%d")].append((dt, temp))
 
-    if best and "relativeHumidity" in best and best["relativeHumidity"]:
-        return best["relativeHumidity"].get("value", 50)
-    return 50
+    for date_str in by_date:
+        by_date[date_str].sort(key=lambda entry: entry[0])
+    return by_date
 
 
-def build_daily_summaries(periods, hourly_periods, max_days=7):
+def band_around(hours, extreme_index, is_high):
     """
-    Builds one summary per calendar day from the NWS day/night periods.
-
-    Temp range shown to the user is "overnight low -> daytime high"
-    (standard weather-report convention: the low is the night that
-    FOLLOWS the day, e.g. "Tue: 34-61" means 61 during Tuesday, dropping
-    to 34 Tuesday night).
-
-    But the uniform / cold-injury call is for 0630 PT/formation, which
-    happens at the coldest point of the morning -- that's the low from
-    the PRECEDING night (periods[i-1]), not the night that follows.
-    Heat category is a midday/afternoon risk, so it's driven by the
-    day's high temp instead.
+    Given the sorted (dt, temp) list and the index of its high/low,
+    extends outward from that index while still within BAND_WIDTH of the
+    extreme, and returns the boundary datetime "on the way in" -- i.e.
+    the earliest time it's within band of the high, or the latest time
+    it's still within band of the low.
     """
+    extreme_temp = hours[extreme_index][1]
+    if is_high:
+        i = extreme_index
+        while i - 1 >= 0 and hours[i - 1][1] >= extreme_temp - BAND_WIDTH:
+            i -= 1
+        return hours[i][0]
+    else:
+        i = extreme_index
+        while i + 1 < len(hours) and hours[i + 1][1] <= extreme_temp + BAND_WIDTH:
+            i += 1
+        return hours[i][0]
+
+
+def build_daily_summaries(hourly_periods, max_days=7):
+    """
+    Builds one summary per calendar date (today + next 6) from the hourly
+    forecast, using only the 0500-2330 window.
+
+    The uniform call is ACU-based:
+      - If the day's high (within the window) is >= 76F, heat category is
+        computed and the heat-category uniform ladder governs the call
+        (see uniform_chart.HEAT_CATEGORY_UNIFORM).
+      - Otherwise, cold-weather layers are driven by the day's low
+        (within the window) -- this stands in for the 0630 PT/formation
+        temperature, since 0500 is the start of the window and the
+        coldest part of the day happens at or shortly after it.
+
+    Rather than showing the full day's low-high range, each line shows
+    the top BAND_WIDTH-degree band of the high and when it's reached
+    (always -- "how hot, and when" is generally useful info), and the
+    bottom BAND_WIDTH-degree band of the low and when it clears, but
+    ONLY when that low is what's actually driving a cold-layer uniform
+    call -- on a day where heat governs the uniform, or where it never
+    gets cold enough to need a layer, the bottom band doesn't change
+    anything and is left out.
+    """
+    by_date = hours_by_date(hourly_periods)
+    dates = sorted(by_date.keys())[:max_days]
+
     summaries = []
-    i = 0
-    while i < len(periods) and len(summaries) < max_days:
-        period = periods[i]
-        if period.get("isDaytime"):
-            high_temp = period["temperature"]
+    for idx, date_str in enumerate(dates):
+        hours = by_date[date_str]
+        if not hours:
+            continue
 
-            evening_low = None
-            if i + 1 < len(periods) and not periods[i + 1].get("isDaytime"):
-                evening_low = periods[i + 1]["temperature"]
+        high_idx = max(range(len(hours)), key=lambda i: hours[i][1])
+        low_idx = min(range(len(hours)), key=lambda i: hours[i][1])
+        day_high = hours[high_idx][1]
+        day_low = hours[low_idx][1]
 
-            morning_low = None
-            if i - 1 >= 0 and not periods[i - 1].get("isDaytime"):
-                morning_low = periods[i - 1]["temperature"]
+        peak_band_start = band_around(hours, high_idx, is_high=True)
+        low_band_end = band_around(hours, low_idx, is_high=False)
 
-            # Range shown to the user; falls back gracefully if either
-            # side is missing (e.g. very first or last period).
-            display_low = evening_low if evening_low is not None else morning_low
+        day_label = "TDY" if idx == 0 else datetime.strptime(date_str, "%Y-%m-%d").strftime("%a")
 
-            day_label = period["name"].split()[0][:3]  # "Tuesday" -> "Tue"
-            rh = humidity_near(hourly_periods, period["startTime"])
+        heat = heat_category(day_high) if day_high >= 76 else None
+        cold_uniform = cold_layer_uniform(day_low)
+        risk_level, risk_note = cold_risk(day_low)
 
-            morning_temp = morning_low if morning_low is not None else high_temp
+        if heat:
+            uniform = heat_modifier_uniform(heat)
+            show_bottom_band = False
+        else:
+            uniform = cold_uniform
+            show_bottom_band = cold_uniform != "ACUs"
 
-            uniform = uniform_for_temp(morning_temp)
-            risk_level, risk_note = cold_risk(morning_temp)
-            heat = heat_category(high_temp, rh) if high_temp >= 76 else None
+        top_desc = f"{day_high - BAND_WIDTH:.0f}-{day_high:.0f}°F by {peak_band_start:%H%M}"
+        if show_bottom_band:
+            bottom_desc = f"{day_low:.0f}-{day_low + BAND_WIDTH:.0f}°F til {low_band_end:%H%M}"
+            temp_desc = f"{bottom_desc}, {top_desc}"
+        else:
+            temp_desc = top_desc
 
-            summaries.append({
-                "day": day_label,
-                "high": high_temp,
-                "low": display_low,
-                "uniform": uniform,
-                "cold_risk": risk_level,
-                "cold_note": risk_note,
-                "heat": heat,
-            })
-        i += 1
+        summaries.append({
+            "day": day_label,
+            "target_date": date_str,
+            "high": day_high,
+            "low": day_low,
+            "temp_desc": temp_desc,
+            "uniform": uniform,
+            "cold_risk": risk_level,
+            "cold_note": risk_note,
+            "heat": heat,
+        })
     return summaries
 
 
 def format_text(summaries):
-    """Builds the final SMS body -- one line per day."""
+    """Builds the final push-notification body -- one line per day."""
     lines = ["WX/UNIFORM"]
     notable = []
 
     for s in summaries:
-        temp_range = f"{s['low']}-{s['high']}°F" if s["low"] is not None else f"{s['high']}°F"
-
         if s["heat"]:
-            if s["heat"]["flag"] == "none":
-                flag = f"Cat {s['heat']['category']}"
-            else:
-                flag = f"Cat {s['heat']['category']} {s['heat']['flag']}"
+            flag = f"Cat {s['heat']['category']} {s['heat']['flag']}"
             if s["heat"]["category"] >= 3:
                 notable.append(f"{s['day']} trending {s['heat']['flag']} — hydrate")
-        elif s["cold_risk"] != "Low":
+        elif s["cold_risk"] != "normal":
             flag = f"{s['cold_risk']} cold risk"
             notable.append(f"{s['day']}: {s['cold_note']}")
         else:
             flag = "low risk"
 
-        lines.append(f"{s['day']}: {temp_range} | {s['uniform']} | {flag}")
+        lines.append(f"{s['day']}: {s['temp_desc']} | {s['uniform']} | {flag}")
 
     if notable:
         lines.append("")
@@ -184,40 +211,64 @@ def format_text(summaries):
     return "\n".join(lines)
 
 
-def send_text(body):
-    email_from = os.environ["EMAIL_FROM"]
-    app_password = os.environ["EMAIL_APP_PASSWORD"]
-    email_to = os.environ["EMAIL_TO"]
-    smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+def send_ntfy(body):
+    topic = os.environ["NTFY_TOPIC"]
+    server = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
 
-    msg = MIMEText(body)
-    msg["From"] = email_from
-    msg["To"] = email_to
-    msg["Subject"] = ""  # most carrier gateways ignore/strip the subject
+    resp = requests.post(
+        f"{server}/{topic}",
+        data=body.encode("utf-8"),
+        headers={
+            "Title": "Morning Text - WX/Uniform",
+            "Priority": "default",
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
 
-    context = ssl.create_default_context()
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
-        server.starttls(context=context)
-        server.login(email_from, app_password)
-        server.sendmail(email_from, email_to, msg.as_string())
+
+def log_yesterdays_actual():
+    """Looks up the nearest real observation station and logs yesterday's
+    actual observed high/low before generating tonight's forecast."""
+    yesterday = datetime.now(LOCAL_TZ).date() - timedelta(days=1)
+    try:
+        station_id = find_nearest_station(LAT, LON, HEADERS)
+        actual_high, actual_low = fetch_actual_high_low(station_id, yesterday, HEADERS)
+    except (requests.RequestException, RuntimeError, KeyError) as exc:
+        print(f"[actuals] could not fetch yesterday's observations: {exc}")
+        return
+
+    if actual_high is None:
+        print(f"[actuals] no observations found for {yesterday} at station")
+        return
+
+    logged = append_actual(yesterday.isoformat(), actual_high, actual_low, station_id)
+    if logged:
+        print(f"[actuals] logged {yesterday}: {actual_low}-{actual_high}°F ({station_id})")
+    else:
+        print(f"[actuals] {yesterday} already logged, skipping")
 
 
 def main():
-    forecast_url, forecast_hourly_url = get_forecast_urls(LAT, LON)
-    periods = get_periods(forecast_url)
+    log_yesterdays_actual()
+
+    forecast_hourly_url = get_forecast_hourly_url(LAT, LON)
     hourly = get_hourly(forecast_hourly_url)
 
-    summaries = build_daily_summaries(periods, hourly)
+    summaries = build_daily_summaries(hourly)
     text = format_text(summaries)
 
     print(text)  # always print -- doubles as the live demo output
 
-    if os.environ.get("EMAIL_FROM"):
-        send_text(text)
-        print("\n[sent via email-to-SMS]")
+    run_timestamp = datetime.now(LOCAL_TZ).isoformat()
+    append_predictions(run_timestamp, summaries)
+    print(f"\n[predictions] logged {len(summaries)} days for run {run_timestamp}")
+
+    if os.environ.get("NTFY_TOPIC"):
+        send_ntfy(text)
+        print("[sent via ntfy]")
     else:
-        print("\n[EMAIL_FROM not set -- skipping send, printed only]")
+        print("[NTFY_TOPIC not set -- skipping send, printed only]")
 
 
 if __name__ == "__main__":
