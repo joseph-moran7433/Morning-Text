@@ -41,3 +41,10 @@ run_timestamp,target_date,days_ahead,predicted_high,predicted_low,predicted_unif
 2026-09-09T05:30:05.055654-04:00,2026-09-13,4,81,65,"ACUs, sleeves rolled once",2,normal
 2026-09-09T05:30:05.055654-04:00,2026-09-14,5,83,65,"ACUs, sleeves rolled once",2,normal
 2026-09-09T05:30:05.055654-04:00,2026-09-15,6,83,64,"ACUs, sleeves rolled once",2,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-10,0,86,70,"ACUs, sleeves rolled twice, boots unbloused",3,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-11,1,79,61,ACUs,1,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-12,2,80,55,"ACUs, sleeves rolled once",2,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-13,3,81,65,"ACUs, sleeves rolled once",2,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-14,4,79,63,ACUs,1,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-15,5,83,61,"ACUs, sleeves rolled once",2,normal
+2026-09-10T05:30:03.930379-04:00,2026-09-16,6,83,67,"ACUs, sleeves rolled once",2,normal
