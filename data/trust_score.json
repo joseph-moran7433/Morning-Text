@@ -1,65 +1,65 @@
 {
-  "generated_at": "2026-09-19T09:30:06.144311+00:00",
-  "days_logged": 16,
+  "generated_at": "2026-09-20T09:30:08.469419+00:00",
+  "days_logged": 17,
   "warming_up": false,
   "warming_up_threshold_days": 14,
   "trust_score": 70,
   "by_lead_day": [
     {
       "days_ahead": 0,
-      "n": 15,
+      "n": 16,
       "insufficient_data": false,
-      "high_mae": 1.79,
-      "low_mae": 2.01,
-      "uniform_wrong_pct": 20.0
+      "high_mae": 1.69,
+      "low_mae": 2.04,
+      "uniform_wrong_pct": 18.8
     },
     {
       "days_ahead": 1,
-      "n": 14,
+      "n": 15,
       "insufficient_data": false,
-      "high_mae": 1.73,
-      "low_mae": 2.1,
-      "uniform_wrong_pct": 21.4
+      "high_mae": 1.67,
+      "low_mae": 2.19,
+      "uniform_wrong_pct": 20.0
     },
     {
       "days_ahead": 2,
-      "n": 13,
+      "n": 14,
       "insufficient_data": false,
-      "high_mae": 2.29,
-      "low_mae": 2.71,
-      "uniform_wrong_pct": 7.7
+      "high_mae": 2.14,
+      "low_mae": 2.54,
+      "uniform_wrong_pct": 7.1
     },
     {
       "days_ahead": 3,
-      "n": 12,
+      "n": 13,
       "insufficient_data": false,
-      "high_mae": 2.0,
-      "low_mae": 3.02,
-      "uniform_wrong_pct": 25.0
+      "high_mae": 1.91,
+      "low_mae": 2.97,
+      "uniform_wrong_pct": 23.1
     },
     {
       "days_ahead": 4,
-      "n": 11,
+      "n": 12,
       "insufficient_data": false,
-      "high_mae": 2.75,
-      "low_mae": 3.65,
-      "uniform_wrong_pct": 27.3
+      "high_mae": 2.7,
+      "low_mae": 3.4,
+      "uniform_wrong_pct": 25.0
     },
     {
       "days_ahead": 5,
-      "n": 10,
+      "n": 11,
       "insufficient_data": false,
-      "high_mae": 5.12,
-      "low_mae": 5.08,
-      "uniform_wrong_pct": 50.0
+      "high_mae": 5.31,
+      "low_mae": 5.04,
+      "uniform_wrong_pct": 54.5
     },
     {
       "days_ahead": 6,
-      "n": 9,
+      "n": 10,
       "insufficient_data": false,
-      "high_mae": 4.58,
-      "low_mae": 5.96,
-      "uniform_wrong_pct": 33.3
+      "high_mae": 4.74,
+      "low_mae": 5.82,
+      "uniform_wrong_pct": 40.0
     }
   ]
 }
