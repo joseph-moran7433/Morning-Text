@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-30T09:30:08.906140+00:00",
-  "days_logged": 27,
+  "generated_at": "2026-10-05T09:30:05.851069+00:00",
+  "days_logged": 28,
   "warming_up": false,
   "warming_up_threshold_days": 14,
   "trust_score": 77,
@@ -39,27 +39,27 @@
     },
     {
       "days_ahead": 4,
-      "n": 22,
+      "n": 23,
       "insufficient_data": false,
       "high_mae": 3.15,
-      "low_mae": 2.45,
-      "uniform_wrong_pct": 13.6
+      "low_mae": 2.54,
+      "uniform_wrong_pct": 13.0
     },
     {
       "days_ahead": 5,
-      "n": 21,
+      "n": 22,
       "insufficient_data": false,
-      "high_mae": 5.01,
-      "low_mae": 3.65,
-      "uniform_wrong_pct": 33.3
+      "high_mae": 4.97,
+      "low_mae": 3.78,
+      "uniform_wrong_pct": 31.8
     },
     {
       "days_ahead": 6,
-      "n": 20,
+      "n": 21,
       "insufficient_data": false,
-      "high_mae": 4.45,
-      "low_mae": 4.57,
-      "uniform_wrong_pct": 30.0
+      "high_mae": 4.58,
+      "low_mae": 4.67,
+      "uniform_wrong_pct": 28.6
     }
   ]
 }
