@@ -195,3 +195,10 @@ run_timestamp,target_date,days_ahead,predicted_high,predicted_low,predicted_unif
 2026-10-05T05:30:05.689325-04:00,2026-10-09,4,70,51,ACUs + jacket,,normal
 2026-10-05T05:30:05.689325-04:00,2026-10-10,5,69,51,ACUs + jacket,,normal
 2026-10-05T05:30:05.689325-04:00,2026-10-11,6,67,48,ACUs + jacket,,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-06,0,61,42,ACUs + jacket,,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-07,1,66,36,"ACUs + fleece jacket, gloves",,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-08,2,74,53,ACUs + jacket,,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-09,3,69,50,ACUs + jacket,,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-10,4,69,48,ACUs + jacket,,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-11,5,70,50,ACUs + jacket,,normal
+2026-10-06T05:30:05.046826-04:00,2026-10-12,6,69,55,ACUs + jacket,,normal
